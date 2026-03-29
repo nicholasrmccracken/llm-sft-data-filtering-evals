@@ -30,7 +30,9 @@ dataset_name=(
     "xstest::default"
 
 )
-model_path=allenai/OLMo-2-0425-1B-SFT
+# Point this to the output_path you used in your merge_lora.py script
+model_path="./models/Llama-3.2-1B-SFT-Merged"
+# A clean name for your results folder
 
 for dataset in "${dataset_name[@]}"; do
     echo "Evaluating on ${dataset}..."
