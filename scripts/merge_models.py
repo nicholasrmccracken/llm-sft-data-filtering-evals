@@ -3,8 +3,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 base_model_path = "meta-llama/Llama-3.2-1B" 
-lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
-output_path = "/users/PAS3272/chawla114/cse5525-final/models/Llama-3.2-1B-SFT-Merged-Baseline2-3"
+lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/models/ebd7c392-a425-5069-a2ac-51f56206b059:train:0_sampler_weights_final"
+output_path = "/users/PAS3272/chawla114/cse5525-final/models/Llama-3.2-1B-SFT-Merged-Baseline2-7"
 
 print(f"Loading base model in FP32 for precision...")
 base_model = AutoModelForCausalLM.from_pretrained(
@@ -28,7 +28,8 @@ merged_model.save_pretrained(output_path, safe_serialization=True)
 
 #  Use the Instruct tokenizer to get the chat templates
 print("Saving Tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct") 
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B") 
+tokenizer.chat_template = "{% for message in messages %}{{ message['role'].capitalize() }}: {{ message['content'] }}\n\n{% endfor %}{% if add_generation_prompt %}Assistant:{% endif %}"
 tokenizer.save_pretrained(output_path)
 
 print("Merge complete! Now try running your evaluations.")
