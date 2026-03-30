@@ -20,7 +20,7 @@ cd olmes/oe_eval/dependencies/safety
 bash install.sh
 
 
-cd /fs/scratch/PAS3272/chawla114/CSE_5525_Final_Project
+#cd /fs/scratch/PAS3272/chawla114/CSE_5525_Final_Project
 
 dataset_name=(
     "gsm8k"

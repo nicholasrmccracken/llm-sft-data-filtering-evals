@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from tinker_cookbook import model_info
 from tinker_cookbook.supervised import train
 from tinker_cookbook.recipes.chat_sl import chat_datasets
 from tinker_cookbook.supervised.types import ChatDatasetBuilderCommonConfig
@@ -11,21 +12,16 @@ import yaml
 class SFTTrainer:
     def __init__(self, training_args):
         self.training_args = training_args
-        self.model_name = training_args.get("model_name", "Owos/Llama-3.2-1B")
+        self.model_name = training_args.get("model_name", "meta-llama/Llama-3.2-1B")
         self.dataset_name = training_args.get("dataset_name", "tulu3")
       
-        # --- THE FIX: Auto-detect the correct Llama-3 chat template renderer ---
-        self.renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
-            model_name=self.model_name,
-            explicit_renderer_name=None,
-            load_checkpoint_path=None,
-            base_url=None,
-        )
+        renderer_name = model_info.get_recommended_renderer_name(self.model_name)
+        print("Renderer: "+ renderer_name)
         
         # 1. Setup the Dataset Builder 
         common_config = ChatDatasetBuilderCommonConfig(
             model_name_for_tokenizer=self.model_name,
-            renderer_name=self.renderer_name,  # <--- Added here!
+            renderer_name=renderer_name,  # <--- Added here!
             batch_size=training_args.get("batch_size", 32),
             max_length=training_args.get("max_length", 2048)
         )
@@ -42,7 +38,7 @@ class SFTTrainer:
         self.cookbook_config = train.Config(
             log_path=f"./logs/{run_name}",
             model_name=self.model_name,
-            renderer_name=self.renderer_name, # <--- And added here!
+            renderer_name=renderer_name, # <--- And added here!
             dataset_builder=self.dataset_builder,
             evaluator_builders=[], # Add eval builders here later if needed
             infrequent_evaluator_builders=[], 

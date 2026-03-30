@@ -2,36 +2,33 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
-# --- CONFIGURATION ---
-# 1. The path to the base model you used for training
-base_model_path = "Owos/Llama-3.2-1B" 
+base_model_path = "meta-llama/Llama-3.2-1B" 
+lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
+output_path = "/users/PAS3272/chawla114/cse5525-final/models/Llama-3.2-1B-SFT-Merged-Baseline2-3"
 
-# 2. The LOCAL path where you downloaded the Tinker adapter
-# (Where you ran: tinker checkpoint download ...)
-lora_adapter_path = "../models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
-
-# 3. Where you want to save the final merged model
-output_path = "../models/Llama-3.2-1B-SFT-Merged-Baseline2"
-
-print(f"Loading base model: {base_model_path}")
+print(f"Loading base model in FP32 for precision...")
 base_model = AutoModelForCausalLM.from_pretrained(
     base_model_path,
-    torch_dtype=torch.bfloat16, # Use bfloat16 to match Llama-3's training
-    device_map="cpu",           # Merging is fine on CPU to save VRAM
+    dtype=torch.float32, # USE FLOAT32 FOR THE ACTUAL MERGE
+    device_map="cpu",           
 )
 
 print(f"Loading adapter: {lora_adapter_path}")
 model = PeftModel.from_pretrained(base_model, lora_adapter_path)
 
 print("Merging weights...")
-# This step "bakes" the LoRA matrices into the base weight matrices
+# This 'bakes' the LoRA into the base weights with high precision
 merged_model = model.merge_and_unload()
 
-print(f"Saving merged model to: {output_path}")
-merged_model.save_pretrained(output_path)
+# Optional: Convert back to bfloat16 BEFORE saving to save disk space
+merged_model = merged_model.to(torch.bfloat16)
 
-# Also save the tokenizer so olmes can find it
-tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+print(f"Saving merged model to: {output_path}")
+merged_model.save_pretrained(output_path, safe_serialization=True)
+
+#  Use the Instruct tokenizer to get the chat templates
+print("Saving Tokenizer...")
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct") 
 tokenizer.save_pretrained(output_path)
 
-print("Merge complete!")
+print("Merge complete! Now try running your evaluations.")

@@ -4,7 +4,7 @@ lora_rank: 32
 epochs: 1
 eval_steps: 0
 # Training parameters
-learning_rate: 0.00049
+learning_rate: 0.00005
 batch_size: 128
 max_length: 2048        
 
