@@ -33,7 +33,7 @@ dataset_name=(
 PROJECT_ROOT="/users/PAS3272/chawla114/cse5525-final"
 
 # 2. Point to the model inside that root
-model_path="${PROJECT_ROOT}/models/Llama-3.2-1B-SFT-Merged-Baseline2"
+model_path="${PROJECT_ROOT}/trained_models/Llama-3.2-1B-SFT-Merged-Baseline2-8"
 # A clean name for your results folder
 
 for dataset in "${dataset_name[@]}"; do
