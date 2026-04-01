@@ -2,13 +2,55 @@ import asyncio
 from datetime import datetime
 from tinker_cookbook import model_info
 from tinker_cookbook.supervised import train
-from tinker_cookbook.recipes.chat_sl import chat_datasets
+#from tinker_cookbook.recipes.chat_sl import chat_datasets
 from tinker_cookbook.supervised.types import ChatDatasetBuilderCommonConfig
 from tinker_cookbook import checkpoint_utils
 from dotenv import load_dotenv  # <--- Add this back!
 import argparse
 import os  
 import yaml
+
+import logging
+from typing import cast
+
+import chz
+import datasets
+import tinker
+
+from tinker_cookbook.renderers import TrainOnWhat
+from tinker_cookbook.supervised.data import (
+    SupervisedDatasetFromHFDataset,
+    conversation_to_datum,
+)
+from tinker_cookbook.supervised.types import ChatDatasetBuilder, SupervisedDataset
+@chz.chz
+class Tulu3Builder(ChatDatasetBuilder):
+    def __call__(self) -> tuple[SupervisedDataset, SupervisedDataset]:
+        dataset = datasets.load_dataset("allenai/tulu-3-sft-olmo-2-mixture-0225")
+        dataset = cast(datasets.DatasetDict, dataset)
+        dataset = dataset["train"]
+        dataset = dataset.shuffle(seed=0)
+        test_ds = dataset.take(1024)
+        train_ds = dataset.skip(1024)
+
+        # Use train_on_what from common_config if provided, otherwise default to LAST_ASSISTANT_MESSAGE
+        train_on_what = (
+            TrainOnWhat(self.common_config.train_on_what)
+            if self.common_config.train_on_what
+            else TrainOnWhat.LAST_ASSISTANT_MESSAGE
+        )
+
+        # take the last 1000 as test, the rest as train
+        def map_fn(row: dict) -> tinker.Datum:
+            return conversation_to_datum(
+                row["messages"], self.renderer, self.common_config.max_length, train_on_what
+            )
+
+        return SupervisedDatasetFromHFDataset(
+            train_ds, batch_size=self.common_config.batch_size, map_fn=map_fn
+        ), SupervisedDatasetFromHFDataset(
+            test_ds, batch_size=self.common_config.batch_size, map_fn=map_fn
+        )
 class SFTTrainer:
     def __init__(self, training_args):
         self.training_args = training_args
@@ -18,6 +60,10 @@ class SFTTrainer:
         renderer_name = model_info.get_recommended_renderer_name(self.model_name)
         print("Renderer: "+ renderer_name)
         
+
+
+
+
         # 1. Setup the Dataset Builder 
         common_config = ChatDatasetBuilderCommonConfig(
             model_name_for_tokenizer=self.model_name,
@@ -27,7 +73,9 @@ class SFTTrainer:
         )
         
         if self.dataset_name == "tulu3":
-            self.dataset_builder = chat_datasets.Tulu3Builder(common_config=common_config)
+            self.dataset_builder = Tulu3Builder(common_config=common_config)
+        
+
         else:
             raise ValueError(f"Add a builder for {self.dataset_name}")
 
