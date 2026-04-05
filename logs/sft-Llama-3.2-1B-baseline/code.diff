@@ -1,0 +1,906 @@
+### repo: /Users/braydenc/cse-5525-spring-2026-default-project-main/cse5525-final @ 50fa04d6d1316dbc1545b418b86956612fb5a6bf
+modules: tinker_cookbook
+-- repo-wide (vs HEAD, staged+unstaged) --
+diff --git a/logs/sft-Llama-3.2-1B-baseline/code.diff b/logs/sft-Llama-3.2-1B-baseline/code.diff
+index 4b59e94..f5778ea 100644
+--- a/logs/sft-Llama-3.2-1B-baseline/code.diff
++++ b/logs/sft-Llama-3.2-1B-baseline/code.diff
+@@ -1,304 +1,492 @@
+-### repo: /Users/braydenc/cse-5525-spring-2026-default-project-main/cse5525-final @ 2199bc60c4314eac8b86656bf649f6e81125bc02
++### repo: /Users/braydenc/cse-5525-spring-2026-default-project-main/cse5525-final @ 50fa04d6d1316dbc1545b418b86956612fb5a6bf
+ modules: tinker_cookbook
+ -- repo-wide (vs HEAD, staged+unstaged) --
+-diff --git a/configs/baseline.yaml b/configs/baseline.yaml
+-index 44048bc..73c05e4 100644
+---- a/configs/baseline.yaml
+-+++ b/configs/baseline.yaml
+-@@ -2,10 +2,19 @@
+- model_name: "meta-llama/Llama-3.2-1B"
+- lora_rank: 32
+- epochs: 1
+--learning_rate: 0.0002
+--save_steps: 50
+--log_steps: 10
+-+
+-+# Training parameters
+-+learning_rate: 0.0004908239409722158
+-+batch_size: 32           
+-+max_length: 16384        
+-+
+-+# --- THE DRY RUN LIMITER ---
+-+max_steps: 15            # Stops training completely after 15 batches. 
+-+
+-+# Checkpointing and Evaluation
+-+save_steps: 15           # Set this to match max_steps so it saves at the very end
+-+log_steps: 5             # Log frequently so you can see it working quickly
+-+eval_every: 0            # Disable evaluation just for the dry run to save time
++diff --git a/logs/sft-Llama-3.2-1B-baseline/code.diff b/logs/sft-Llama-3.2-1B-baseline/code.diff
++index 4b59e94..0551e73 100644
++--- a/logs/sft-Llama-3.2-1B-baseline/code.diff
+++++ b/logs/sft-Llama-3.2-1B-baseline/code.diff
++@@ -1,304 +1,97 @@
++-### repo: /Users/braydenc/cse-5525-spring-2026-default-project-main/cse5525-final @ 2199bc60c4314eac8b86656bf649f6e81125bc02
+++### repo: /Users/braydenc/cse-5525-spring-2026-default-project-main/cse5525-final @ 50fa04d6d1316dbc1545b418b86956612fb5a6bf
++ modules: tinker_cookbook
++ -- repo-wide (vs HEAD, staged+unstaged) --
++-diff --git a/configs/baseline.yaml b/configs/baseline.yaml
++-index 44048bc..73c05e4 100644
++---- a/configs/baseline.yaml
++-+++ b/configs/baseline.yaml
++-@@ -2,10 +2,19 @@
++- model_name: "meta-llama/Llama-3.2-1B"
++- lora_rank: 32
++- epochs: 1
++--learning_rate: 0.0002
++--save_steps: 50
++--log_steps: 10
++-+
++-+# Training parameters
++-+learning_rate: 0.0004908239409722158
++-+batch_size: 32           
++-+max_length: 16384        
++-+
++-+# --- THE DRY RUN LIMITER ---
++-+max_steps: 15            # Stops training completely after 15 batches. 
++-+
++-+# Checkpointing and Evaluation
++-+save_steps: 15           # Set this to match max_steps so it saves at the very end
++-+log_steps: 5             # Log frequently so you can see it working quickly
++-+eval_every: 0            # Disable evaluation just for the dry run to save time
+++diff --git a/scripts/merge_models.py b/scripts/merge_models.py
+++index bd4562a..cbda4e2 100644
+++--- a/scripts/merge_models.py
++++++ b/scripts/merge_models.py
+++@@ -2,36 +2,33 @@ import torch
+++ from transformers import AutoModelForCausalLM, AutoTokenizer
+++ from peft import PeftModel
++  
++- # Dataset settings
++--dataset_name: "allenai/tulu-3-sft-olmo-2-mixture-0225"
++--max_samples: 100 # Change to null or remove this line when you want to run the full dataset
++-\ No newline at end of file
++-+dataset_name: "tulu3"
++-\ No newline at end of file
++-diff --git a/train_sft.py b/train_sft.py
++-index 5bd5f82..953f103 100644
++---- a/train_sft.py
++-+++ b/train_sft.py
++-@@ -1,183 +1,102 @@
++--"""
++--This module implements the SFTTrainer class for training your model using supervised fine-tuning (SFT) via Tinker.
++--"""
++--import os
++--import time
++-+import asyncio
++-+from datetime import datetime
++-+from tinker_cookbook.supervised import train
++-+from tinker_cookbook.recipes.chat_sl import chat_datasets
++-+from tinker_cookbook.supervised.types import ChatDatasetBuilderCommonConfig
++-+from tinker_cookbook import checkpoint_utils
++-+from dotenv import load_dotenv  # <--- Add this back!
++- import argparse
++-+import os  
++- import yaml
++--from dotenv import load_dotenv
++--
++--import tinker
++--from tinker import types
++--from datasets import load_dataset
++--
++- class SFTTrainer:
++--    def __init__(self, model, tokenizer, train_dataset, val_dataset, training_args):
++--        # 1. THE CONTROL ROOM (Configuration)
++--        self.model = model  # This holds the Tinker training client
++--        self.tokenizer = tokenizer
++--        
++--        # 2. THE FUEL (Data)
++--        self.train_dataset = train_dataset
++--        self.val_dataset = val_dataset
++--        
++--        # Unpacking the configuration dictionary
++-+    def __init__(self, training_args):
++-         self.training_args = training_args
++--        self.epochs = training_args.get("epochs", 1)
++--        self.save_steps = training_args.get("save_steps", 100)
++--        self.log_steps = training_args.get("log_steps", 10)
++--        self.lr = training_args.get("learning_rate",0.0002)
++--
++--    def train(self):
++--        """
++--        3. THE ENGINE (Training Loop)
++--        """
++--        print("Starting Tinker SFT Engine...")
++--        global_step = 0
++--
++--        for epoch in range(self.epochs):
++--            print(f"\n--- Starting Epoch {epoch + 1}/{self.epochs} ---")
++--            
++--            for batch_idx, batch in enumerate(self.train_dataset):
++--                global_step += 1
++--                
++--                # Step A: Forward/Backward Pass (Compute Loss)
++--                try:
++--                    loss_future = self.model.forward_backward([batch],loss_fn = "cross_entropy")
++--                    loss = loss_future.result() 
++--                    
++--                    # Step B: Optimizer Step (Update Weights)
++--                    self.model.optim_step(
++--                        types.AdamParams(learning_rate=self.lr)
++--                    ).result()
++--                    
++--                except Exception as e:
++--                    print(f"Network/Compute error at step {global_step}: {e}. Skipping batch...")
++--                    time.sleep(2)
++--                    continue 
++--
++--                # 4. THE DASHBOARD & SAFETY NET (Logging and Checkpointing)
++--                if global_step % self.log_steps == 0:
++--                   # Dive into the object path you found!
++--
++--                    # 1. Get the list
++--                   # loss_list = loss.loss_fn_outputs
++--                    #print(loss_list)
++--                    loss_dict = loss.loss_fn_outputs[0]
++--                    
++--                    # 2. Extract the 'elementwise_loss' TensorData object
++--                    elementwise_tensor = loss_dict["elementwise_loss"]
++--                    
++--                    # 3. Get the raw list of 846 numbers from the '.data' attribute
++--                    loss_array = elementwise_tensor.data
++--                    
++--                    # 4. Calculate the average (mean) loss for the sequence
++--                    if len(loss_array) > 0:
++--                        avg_loss = sum(loss_array) / len(loss_array)
++--                    else:
++--                        avg_loss = 0.0
++--                        
++--                    print(f"Epoch: {epoch + 1} | Step: {global_step} | Loss: {avg_loss:.4f}")
++--
++--        print("\nTraining complete! Your final model weights are saved.")
++--        self.model.save_state(name="checkpoint_final")
++--
++--
++--def load_and_format_data(dataset_name, tokenizer, max_samples=None):
++--    """
++--    Downloads the Tulu-3 dataset from Hugging Face and converts it to Tinker's format.
++--    """
++--    print(f"Downloading {dataset_name} from Hugging Face...")
++--    hf_dataset = load_dataset(dataset_name, split="train")
++--    
++--    if max_samples:
++--        hf_dataset = hf_dataset.select(range(max_samples))
++--        print(f"Truncated dataset to {max_samples} samples for fast testing.")
++--
++--    processed_data = []
++--    print("Formatting messages into Tinker chunks...")
++--    
++--    for row in hf_dataset:
++--        messages = row["messages"]
++--        full_text = ""
++-+        self.model_name = training_args.get("model_name", "Owos/Llama-3.2-1B")
++-+        self.dataset_name = training_args.get("dataset_name", "tulu3")
++-+      
++-+        # --- THE FIX: Auto-detect the correct Llama-3 chat template renderer ---
++-+        self.renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
++-+            model_name=self.model_name,
++-+            explicit_renderer_name=None,
++-+            load_checkpoint_path=None,
++-+            base_url=None,
++-+        )
++-         
++--        for msg in messages:
++--            if msg["role"] == "user":
++--                full_text += f"User: {msg['content']}\n"
++--            elif msg["role"] == "assistant":
++--                full_text += f"Assistant: {msg['content']}\n"
++-+        # 1. Setup the Dataset Builder 
++-+        common_config = ChatDatasetBuilderCommonConfig(
++-+            model_name_for_tokenizer=self.model_name,
++-+            renderer_name=self.renderer_name,  # <--- Added here!
++-+            batch_size=training_args.get("batch_size", 32),
++-+            max_length=training_args.get("max_length", 2048)
++-+        )
++-         
++--        tokens = tokenizer.encode(full_text.strip())
++-+        if self.dataset_name == "tulu3":
++-+            self.dataset_builder = chat_datasets.Tulu3Builder(common_config=common_config)
++-+        else:
++-+            raise ValueError(f"Add a builder for {self.dataset_name}")
++-+
++-+        date_str = datetime.now().strftime("%Y-%m-%d")
++-+        run_name = f"sft-{self.model_name.split('/')[-1]}-{training_args.get("experiment_name", "unnamed_run")}"
++-         
++--        tinker_input = tinker.ModelInput(
++--            chunks=[types.EncodedTextChunk(tokens=tokens)]
++--            
++-+        # 2. Build the Config object
++-+        self.cookbook_config = train.Config(
++-+            log_path=f"./logs/{run_name}",
++-+            model_name=self.model_name,
++-+            renderer_name=self.renderer_name, # <--- And added here!
++-+            dataset_builder=self.dataset_builder,
++-+            evaluator_builders=[], # Add eval builders here later if needed
++-+            infrequent_evaluator_builders=[], 
++-+            learning_rate=training_args.get("learning_rate", 1e-4),
++-+            lr_schedule="linear",
++-+            num_epochs=training_args.get("epochs", 1),
++-+            lora_rank=training_args.get("lora_rank", 32),
++-+            save_every=training_args.get("save_steps", 100),
++-+            eval_every=training_args.get("eval_steps", 100),
++-+            max_steps=training_args.get("max_steps", None),
++-+            infrequent_eval_every=0,
++-+            rolling_save_every=0,
++-+            wandb_project=None, 
++-+            wandb_name=None
++-         )
+++-# --- CONFIGURATION ---
+++-# 1. The path to the base model you used for training
+++-base_model_path = "Owos/Llama-3.2-1B" 
++++base_model_path = "meta-llama/Llama-3.2-1B" 
++++lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
++++output_path = "/users/PAS3272/chawla114/cse5525-final/models/Llama-3.2-1B-SFT-Merged-Baseline2-3"
++  
++--        # 1. The Language Modeling Shift
++--        # The model sees everything except the last word
++--        student_input = tokens[:-1] 
++--        # The model is graded on predicting everything after the first word
++--        target_tokens = tokens[1:]  
++-+    def train(self):
++-+        """
++-+        The required train method. It triggers the asynchronous 
++-+        tinker_cookbook loop, bypassing the massive API latency.
++-+        """
++-+        print(f"Starting optimized training run for {self.model_name}...")
++-         
++--        # 2. The Weights Array
++--        # 1.0 means "calculate the loss for this token". 
++--        weights = [1.0] * len(target_tokens)
++-+        # This one line replaces the entire manual forward/backward/step loop
++-+        asyncio.run(train.main(self.cookbook_config))
++-         
++--        # 3. Your perfectly formatted Datum!
++--        datum = tinker.Datum(
++--            model_input=tinker.ModelInput.from_ints(student_input),
++--            loss_fn_inputs={
++--                "target_tokens": target_tokens,
++--                "weights": weights,
++--            },
++--        )
++--        processed_data.append(datum)
++--            
++--    print(f"Successfully formatted {len(processed_data)} examples for Tinker.")
++--    return processed_data
+++-# 2. The LOCAL path where you downloaded the Tinker adapter
+++-# (Where you ran: tinker checkpoint download ...)
+++-lora_adapter_path = "../models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
++ -
++-+        print("Training complete! Weights are saved in the log path.")
++- 
++-+# --- Usage ---
++- if __name__ == "__main__":
++--    # Load environment variables (Make sure your .env file has TINKER_API_KEY=...)
++--    load_dotenv()
+++-# 3. Where you want to save the final merged model
+++-output_path = "../models/Llama-3.2-1B-SFT-Merged-Baseline2"
++ -
++--    # 1. Catch the config flag from the bash script
++--    parser = argparse.ArgumentParser(description="Run SFT Training")
++--    parser.add_argument("--config", type=str, required=True, help="Path to your config yaml file")
++-+# 1. Catch the config flag from the terminal
++-+    load_dotenv()  # <--- Add this right here!
++-+    parser = argparse.ArgumentParser(description="Run Optimized SFT Training")
++-+    parser.add_argument("--config", type=str, required=True, help="Path to your baseline.yaml")
++-     args = parser.parse_args()
+++-print(f"Loading base model: {base_model_path}")
++++print(f"Loading base model in FP32 for precision...")
+++ base_model = AutoModelForCausalLM.from_pretrained(
+++     base_model_path,
+++-    torch_dtype=torch.bfloat16, # Use bfloat16 to match Llama-3's training
+++-    device_map="cpu",           # Merging is fine on CPU to save VRAM
++++    dtype=torch.float32, # USE FLOAT32 FOR THE ACTUAL MERGE
++++    device_map="cpu",           
+++ )
++  
++--    # 2. Open and read the configuration file
++-+    # 2. Open and read the YAML configuration file
++-     print(f"Loading experiment settings from: {args.config}")
++-     with open(args.config, 'r') as file:
++--        training_args = yaml.safe_load(file)
++-+        my_args = yaml.safe_load(file)
+++ print(f"Loading adapter: {lora_adapter_path}")
+++ model = PeftModel.from_pretrained(base_model, lora_adapter_path)
++  
++--    # 3. Initialize your Tinker Client
++--    print("Initializing Tinker connection...")
++--    service_client = tinker.ServiceClient()
++--    model = service_client.create_lora_training_client(
++--        base_model=training_args.get("model_name", "Owos/Llama-3.2-1B"),
++--        rank=training_args.get("lora_rank", 32)
++--    )
++--    tokenizer = model.get_tokenizer()
++-+    # ---> ADD THESE TWO LINES <---
++-+    # This extracts "baseline" from "configs/baseline.yaml"
++-+    config_filename = os.path.splitext(os.path.basename(args.config))[0]
++-+    my_args["experiment_name"] = config_filename
+++ print("Merging weights...")
+++-# This step "bakes" the LoRA matrices into the base weight matrices
++++# This 'bakes' the LoRA into the base weights with high precision
+++ merged_model = model.merge_and_unload()
++  
++--    # 4. Load your data from Hugging Face
++--    dataset_name = training_args.get("dataset_name", "allenai/tulu-3-sft-olmo-2-mixture-0225")
++--    max_samples = training_args.get("max_samples", None) 
++--    
++--    train_data = load_and_format_data(
++--        dataset_name=dataset_name, 
++--        tokenizer=tokenizer,
++--        max_samples=max_samples
++--    )
++--
++--    # 5. Instantiate your class and press GO
++--    trainer = SFTTrainer(
++--        model=model,
++--        tokenizer=tokenizer,
++--        train_dataset=train_data,
++--        val_dataset=[], # Empty for now, but ready for validation data later
++--        training_args=training_args
++--    )
++-+    # Optional: Print the config to verify it loaded correctly before burning credits
++-+    print("\n--- Loaded Configuration ---")
++-+    for key, value in my_args.items():
++-+        print(f"{key}: {value}")
++-+    print("----------------------------\n")
++++# Optional: Convert back to bfloat16 BEFORE saving to save disk space
++++merged_model = merged_model.to(torch.bfloat16)
++++
+++ print(f"Saving merged model to: {output_path}")
+++-merged_model.save_pretrained(output_path)
++++merged_model.save_pretrained(output_path, safe_serialization=True)
+++ 
+++-# Also save the tokenizer so olmes can find it
+++-tokenizer = AutoTokenizer.from_pretrained(base_model_path)
++++#  Use the Instruct tokenizer to get the chat templates
++++print("Saving Tokenizer...")
++++tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct") 
+++ tokenizer.save_pretrained(output_path)
++  
++-+    # 3. Instantiate your required class with the YAML dictionary
++-+    trainer = SFTTrainer(training_args=my_args)
++-+    
++-+    # 4. Call the required method
++-     trainer.train()
+++-print("Merge complete!")
+++\ No newline at end of file
++++print("Merge complete! Now try running your evaluations.")
++ \ No newline at end of file
+++diff --git a/train_sft.py b/train_sft.py
+++index 953f103..a219db6 100644
+++--- a/train_sft.py
++++++ b/train_sft.py
+++@@ -14,18 +14,18 @@ class SFTTrainer:
+++         self.model_name = training_args.get("model_name", "Owos/Llama-3.2-1B")
+++         self.dataset_name = training_args.get("dataset_name", "tulu3")
+++       
+++-        # --- THE FIX: Auto-detect the correct Llama-3 chat template renderer ---
+++-        self.renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
+++-            model_name=self.model_name,
++++        renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
++++            model_name="meta-llama/Llama-3.2-1B",
+++             explicit_renderer_name=None,
+++             load_checkpoint_path=None,
+++             base_url=None,
+++         )
++++        print(renderer_name)
+++         
+++         # 1. Setup the Dataset Builder 
+++         common_config = ChatDatasetBuilderCommonConfig(
+++             model_name_for_tokenizer=self.model_name,
+++-            renderer_name=self.renderer_name,  # <--- Added here!
++++            renderer_name=renderer_name,  # <--- Added here!
+++             batch_size=training_args.get("batch_size", 32),
+++             max_length=training_args.get("max_length", 2048)
+++         )
+++@@ -42,7 +42,7 @@ class SFTTrainer:
+++         self.cookbook_config = train.Config(
+++             log_path=f"./logs/{run_name}",
+++             model_name=self.model_name,
+++-            renderer_name=self.renderer_name, # <--- And added here!
++++            renderer_name=renderer_name, # <--- And added here!
+++             dataset_builder=self.dataset_builder,
+++             evaluator_builders=[], # Add eval builders here later if needed
+++             infrequent_evaluator_builders=[],
++diff --git a/scripts/merge_models.py b/scripts/merge_models.py
++index bd4562a..cbda4e2 100644
++--- a/scripts/merge_models.py
+++++ b/scripts/merge_models.py
++@@ -2,36 +2,33 @@ import torch
++ from transformers import AutoModelForCausalLM, AutoTokenizer
++ from peft import PeftModel
+  
+- # Dataset settings
+--dataset_name: "allenai/tulu-3-sft-olmo-2-mixture-0225"
+--max_samples: 100 # Change to null or remove this line when you want to run the full dataset
+-\ No newline at end of file
+-+dataset_name: "tulu3"
+-\ No newline at end of file
+-diff --git a/train_sft.py b/train_sft.py
+-index 5bd5f82..953f103 100644
+---- a/train_sft.py
+-+++ b/train_sft.py
+-@@ -1,183 +1,102 @@
+--"""
+--This module implements the SFTTrainer class for training your model using supervised fine-tuning (SFT) via Tinker.
+--"""
+--import os
+--import time
+-+import asyncio
+-+from datetime import datetime
+-+from tinker_cookbook.supervised import train
+-+from tinker_cookbook.recipes.chat_sl import chat_datasets
+-+from tinker_cookbook.supervised.types import ChatDatasetBuilderCommonConfig
+-+from tinker_cookbook import checkpoint_utils
+-+from dotenv import load_dotenv  # <--- Add this back!
+- import argparse
+-+import os  
+- import yaml
+--from dotenv import load_dotenv
+--
+--import tinker
+--from tinker import types
+--from datasets import load_dataset
+--
+- class SFTTrainer:
+--    def __init__(self, model, tokenizer, train_dataset, val_dataset, training_args):
+--        # 1. THE CONTROL ROOM (Configuration)
+--        self.model = model  # This holds the Tinker training client
+--        self.tokenizer = tokenizer
+--        
+--        # 2. THE FUEL (Data)
+--        self.train_dataset = train_dataset
+--        self.val_dataset = val_dataset
+--        
+--        # Unpacking the configuration dictionary
+-+    def __init__(self, training_args):
+-         self.training_args = training_args
+--        self.epochs = training_args.get("epochs", 1)
+--        self.save_steps = training_args.get("save_steps", 100)
+--        self.log_steps = training_args.get("log_steps", 10)
+--        self.lr = training_args.get("learning_rate",0.0002)
+--
+--    def train(self):
+--        """
+--        3. THE ENGINE (Training Loop)
+--        """
+--        print("Starting Tinker SFT Engine...")
+--        global_step = 0
+--
+--        for epoch in range(self.epochs):
+--            print(f"\n--- Starting Epoch {epoch + 1}/{self.epochs} ---")
+--            
+--            for batch_idx, batch in enumerate(self.train_dataset):
+--                global_step += 1
+--                
+--                # Step A: Forward/Backward Pass (Compute Loss)
+--                try:
+--                    loss_future = self.model.forward_backward([batch],loss_fn = "cross_entropy")
+--                    loss = loss_future.result() 
+--                    
+--                    # Step B: Optimizer Step (Update Weights)
+--                    self.model.optim_step(
+--                        types.AdamParams(learning_rate=self.lr)
+--                    ).result()
+--                    
+--                except Exception as e:
+--                    print(f"Network/Compute error at step {global_step}: {e}. Skipping batch...")
+--                    time.sleep(2)
+--                    continue 
+--
+--                # 4. THE DASHBOARD & SAFETY NET (Logging and Checkpointing)
+--                if global_step % self.log_steps == 0:
+--                   # Dive into the object path you found!
+--
+--                    # 1. Get the list
+--                   # loss_list = loss.loss_fn_outputs
+--                    #print(loss_list)
+--                    loss_dict = loss.loss_fn_outputs[0]
+--                    
+--                    # 2. Extract the 'elementwise_loss' TensorData object
+--                    elementwise_tensor = loss_dict["elementwise_loss"]
+--                    
+--                    # 3. Get the raw list of 846 numbers from the '.data' attribute
+--                    loss_array = elementwise_tensor.data
+--                    
+--                    # 4. Calculate the average (mean) loss for the sequence
+--                    if len(loss_array) > 0:
+--                        avg_loss = sum(loss_array) / len(loss_array)
+--                    else:
+--                        avg_loss = 0.0
+--                        
+--                    print(f"Epoch: {epoch + 1} | Step: {global_step} | Loss: {avg_loss:.4f}")
+--
+--        print("\nTraining complete! Your final model weights are saved.")
+--        self.model.save_state(name="checkpoint_final")
+--
+--
+--def load_and_format_data(dataset_name, tokenizer, max_samples=None):
+--    """
+--    Downloads the Tulu-3 dataset from Hugging Face and converts it to Tinker's format.
+--    """
+--    print(f"Downloading {dataset_name} from Hugging Face...")
+--    hf_dataset = load_dataset(dataset_name, split="train")
+--    
+--    if max_samples:
+--        hf_dataset = hf_dataset.select(range(max_samples))
+--        print(f"Truncated dataset to {max_samples} samples for fast testing.")
+--
+--    processed_data = []
+--    print("Formatting messages into Tinker chunks...")
+--    
+--    for row in hf_dataset:
+--        messages = row["messages"]
+--        full_text = ""
+-+        self.model_name = training_args.get("model_name", "Owos/Llama-3.2-1B")
+-+        self.dataset_name = training_args.get("dataset_name", "tulu3")
+-+      
+-+        # --- THE FIX: Auto-detect the correct Llama-3 chat template renderer ---
+-+        self.renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
+-+            model_name=self.model_name,
+-+            explicit_renderer_name=None,
+-+            load_checkpoint_path=None,
+-+            base_url=None,
+-+        )
+-         
+--        for msg in messages:
+--            if msg["role"] == "user":
+--                full_text += f"User: {msg['content']}\n"
+--            elif msg["role"] == "assistant":
+--                full_text += f"Assistant: {msg['content']}\n"
+-+        # 1. Setup the Dataset Builder 
+-+        common_config = ChatDatasetBuilderCommonConfig(
+-+            model_name_for_tokenizer=self.model_name,
+-+            renderer_name=self.renderer_name,  # <--- Added here!
+-+            batch_size=training_args.get("batch_size", 32),
+-+            max_length=training_args.get("max_length", 2048)
+-+        )
+-         
+--        tokens = tokenizer.encode(full_text.strip())
+-+        if self.dataset_name == "tulu3":
+-+            self.dataset_builder = chat_datasets.Tulu3Builder(common_config=common_config)
+-+        else:
+-+            raise ValueError(f"Add a builder for {self.dataset_name}")
+-+
+-+        date_str = datetime.now().strftime("%Y-%m-%d")
+-+        run_name = f"sft-{self.model_name.split('/')[-1]}-{training_args.get("experiment_name", "unnamed_run")}"
+-         
+--        tinker_input = tinker.ModelInput(
+--            chunks=[types.EncodedTextChunk(tokens=tokens)]
+--            
+-+        # 2. Build the Config object
+-+        self.cookbook_config = train.Config(
+-+            log_path=f"./logs/{run_name}",
+-+            model_name=self.model_name,
+-+            renderer_name=self.renderer_name, # <--- And added here!
+-+            dataset_builder=self.dataset_builder,
+-+            evaluator_builders=[], # Add eval builders here later if needed
+-+            infrequent_evaluator_builders=[], 
+-+            learning_rate=training_args.get("learning_rate", 1e-4),
+-+            lr_schedule="linear",
+-+            num_epochs=training_args.get("epochs", 1),
+-+            lora_rank=training_args.get("lora_rank", 32),
+-+            save_every=training_args.get("save_steps", 100),
+-+            eval_every=training_args.get("eval_steps", 100),
+-+            max_steps=training_args.get("max_steps", None),
+-+            infrequent_eval_every=0,
+-+            rolling_save_every=0,
+-+            wandb_project=None, 
+-+            wandb_name=None
+-         )
++-# --- CONFIGURATION ---
++-# 1. The path to the base model you used for training
++-base_model_path = "Owos/Llama-3.2-1B" 
+++base_model_path = "meta-llama/Llama-3.2-1B" 
+++lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
+++output_path = "/users/PAS3272/chawla114/cse5525-final/models/Llama-3.2-1B-SFT-Merged-Baseline2-3"
+  
+--        # 1. The Language Modeling Shift
+--        # The model sees everything except the last word
+--        student_input = tokens[:-1] 
+--        # The model is graded on predicting everything after the first word
+--        target_tokens = tokens[1:]  
+-+    def train(self):
+-+        """
+-+        The required train method. It triggers the asynchronous 
+-+        tinker_cookbook loop, bypassing the massive API latency.
+-+        """
+-+        print(f"Starting optimized training run for {self.model_name}...")
+-         
+--        # 2. The Weights Array
+--        # 1.0 means "calculate the loss for this token". 
+--        weights = [1.0] * len(target_tokens)
+-+        # This one line replaces the entire manual forward/backward/step loop
+-+        asyncio.run(train.main(self.cookbook_config))
+-         
+--        # 3. Your perfectly formatted Datum!
+--        datum = tinker.Datum(
+--            model_input=tinker.ModelInput.from_ints(student_input),
+--            loss_fn_inputs={
+--                "target_tokens": target_tokens,
+--                "weights": weights,
+--            },
+--        )
+--        processed_data.append(datum)
+--            
+--    print(f"Successfully formatted {len(processed_data)} examples for Tinker.")
+--    return processed_data
++-# 2. The LOCAL path where you downloaded the Tinker adapter
++-# (Where you ran: tinker checkpoint download ...)
++-lora_adapter_path = "../models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
+ -
+-+        print("Training complete! Weights are saved in the log path.")
+- 
+-+# --- Usage ---
+- if __name__ == "__main__":
+--    # Load environment variables (Make sure your .env file has TINKER_API_KEY=...)
+--    load_dotenv()
++-# 3. Where you want to save the final merged model
++-output_path = "../models/Llama-3.2-1B-SFT-Merged-Baseline2"
+ -
+--    # 1. Catch the config flag from the bash script
+--    parser = argparse.ArgumentParser(description="Run SFT Training")
+--    parser.add_argument("--config", type=str, required=True, help="Path to your config yaml file")
+-+# 1. Catch the config flag from the terminal
+-+    load_dotenv()  # <--- Add this right here!
+-+    parser = argparse.ArgumentParser(description="Run Optimized SFT Training")
+-+    parser.add_argument("--config", type=str, required=True, help="Path to your baseline.yaml")
+-     args = parser.parse_args()
++-print(f"Loading base model: {base_model_path}")
+++print(f"Loading base model in FP32 for precision...")
++ base_model = AutoModelForCausalLM.from_pretrained(
++     base_model_path,
++-    torch_dtype=torch.bfloat16, # Use bfloat16 to match Llama-3's training
++-    device_map="cpu",           # Merging is fine on CPU to save VRAM
+++    dtype=torch.float32, # USE FLOAT32 FOR THE ACTUAL MERGE
+++    device_map="cpu",           
++ )
+  
+--    # 2. Open and read the configuration file
+-+    # 2. Open and read the YAML configuration file
+-     print(f"Loading experiment settings from: {args.config}")
+-     with open(args.config, 'r') as file:
+--        training_args = yaml.safe_load(file)
+-+        my_args = yaml.safe_load(file)
++ print(f"Loading adapter: {lora_adapter_path}")
++ model = PeftModel.from_pretrained(base_model, lora_adapter_path)
+  
+--    # 3. Initialize your Tinker Client
+--    print("Initializing Tinker connection...")
+--    service_client = tinker.ServiceClient()
+--    model = service_client.create_lora_training_client(
+--        base_model=training_args.get("model_name", "Owos/Llama-3.2-1B"),
+--        rank=training_args.get("lora_rank", 32)
+--    )
+--    tokenizer = model.get_tokenizer()
+-+    # ---> ADD THESE TWO LINES <---
+-+    # This extracts "baseline" from "configs/baseline.yaml"
+-+    config_filename = os.path.splitext(os.path.basename(args.config))[0]
+-+    my_args["experiment_name"] = config_filename
++ print("Merging weights...")
++-# This step "bakes" the LoRA matrices into the base weight matrices
+++# This 'bakes' the LoRA into the base weights with high precision
++ merged_model = model.merge_and_unload()
+  
+--    # 4. Load your data from Hugging Face
+--    dataset_name = training_args.get("dataset_name", "allenai/tulu-3-sft-olmo-2-mixture-0225")
+--    max_samples = training_args.get("max_samples", None) 
+--    
+--    train_data = load_and_format_data(
+--        dataset_name=dataset_name, 
+--        tokenizer=tokenizer,
+--        max_samples=max_samples
+--    )
+--
+--    # 5. Instantiate your class and press GO
+--    trainer = SFTTrainer(
+--        model=model,
+--        tokenizer=tokenizer,
+--        train_dataset=train_data,
+--        val_dataset=[], # Empty for now, but ready for validation data later
+--        training_args=training_args
+--    )
+-+    # Optional: Print the config to verify it loaded correctly before burning credits
+-+    print("\n--- Loaded Configuration ---")
+-+    for key, value in my_args.items():
+-+        print(f"{key}: {value}")
+-+    print("----------------------------\n")
+++# Optional: Convert back to bfloat16 BEFORE saving to save disk space
+++merged_model = merged_model.to(torch.bfloat16)
+++
++ print(f"Saving merged model to: {output_path}")
++-merged_model.save_pretrained(output_path)
+++merged_model.save_pretrained(output_path, safe_serialization=True)
++ 
++-# Also save the tokenizer so olmes can find it
++-tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+++#  Use the Instruct tokenizer to get the chat templates
+++print("Saving Tokenizer...")
+++tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct") 
++ tokenizer.save_pretrained(output_path)
+  
+-+    # 3. Instantiate your required class with the YAML dictionary
+-+    trainer = SFTTrainer(training_args=my_args)
+-+    
+-+    # 4. Call the required method
+-     trainer.train()
++-print("Merge complete!")
++\ No newline at end of file
+++print("Merge complete! Now try running your evaluations.")
+ \ No newline at end of file
++diff --git a/train_sft.py b/train_sft.py
++index 953f103..c5bb191 100644
++--- a/train_sft.py
+++++ b/train_sft.py
++@@ -14,18 +14,18 @@ class SFTTrainer:
++         self.model_name = training_args.get("model_name", "Owos/Llama-3.2-1B")
++         self.dataset_name = training_args.get("dataset_name", "tulu3")
++       
++-        # --- THE FIX: Auto-detect the correct Llama-3 chat template renderer ---
++-        self.renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
++-            model_name=self.model_name,
+++        renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
+++            model_name="meta-llama/Llama-3.2-1B",
++             explicit_renderer_name=None,
++             load_checkpoint_path=None,
++             base_url=None,
++         )
+++        print("Renderer"+ renderer_name)
++         
++         # 1. Setup the Dataset Builder 
++         common_config = ChatDatasetBuilderCommonConfig(
++             model_name_for_tokenizer=self.model_name,
++-            renderer_name=self.renderer_name,  # <--- Added here!
+++            renderer_name=renderer_name,  # <--- Added here!
++             batch_size=training_args.get("batch_size", 32),
++             max_length=training_args.get("max_length", 2048)
++         )
++@@ -42,7 +42,7 @@ class SFTTrainer:
++         self.cookbook_config = train.Config(
++             log_path=f"./logs/{run_name}",
++             model_name=self.model_name,
++-            renderer_name=self.renderer_name, # <--- And added here!
+++            renderer_name=renderer_name, # <--- And added here!
++             dataset_builder=self.dataset_builder,
++             evaluator_builders=[], # Add eval builders here later if needed
++             infrequent_evaluator_builders=[],
+diff --git a/logs/sft-Llama-3.2-1B-baseline/config.json b/logs/sft-Llama-3.2-1B-baseline/config.json
+index 987abb8..4804801 100644
+--- a/logs/sft-Llama-3.2-1B-baseline/config.json
++++ b/logs/sft-Llama-3.2-1B-baseline/config.json
+@@ -2,11 +2,11 @@
+   "log_path": "logs/sft-Llama-3.2-1B-baseline",
+   "model_name": "meta-llama/Llama-3.2-1B",
+   "load_checkpoint_path": null,
+-  "renderer_name": "role_colon",
++  "renderer_name": "llama3",
+   "dataset_builder": {
+     "common_config": {
+       "model_name_for_tokenizer": "meta-llama/Llama-3.2-1B",
+-      "renderer_name": "role_colon",
++      "renderer_name": "llama3",
+       "max_length": 16384,
+       "batch_size": 32,
+       "train_on_what": null
+diff --git a/scripts/merge_models.py b/scripts/merge_models.py
+index bd4562a..cbda4e2 100644
+--- a/scripts/merge_models.py
++++ b/scripts/merge_models.py
+@@ -2,36 +2,33 @@ import torch
+ from transformers import AutoModelForCausalLM, AutoTokenizer
+ from peft import PeftModel
+ 
+-# --- CONFIGURATION ---
+-# 1. The path to the base model you used for training
+-base_model_path = "Owos/Llama-3.2-1B" 
++base_model_path = "meta-llama/Llama-3.2-1B" 
++lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
++output_path = "/users/PAS3272/chawla114/cse5525-final/models/Llama-3.2-1B-SFT-Merged-Baseline2-3"
+ 
+-# 2. The LOCAL path where you downloaded the Tinker adapter
+-# (Where you ran: tinker checkpoint download ...)
+-lora_adapter_path = "../models/8104f76f-a448-588c-bd7a-22adc895edad:train:0_sampler_weights_final" 
+-
+-# 3. Where you want to save the final merged model
+-output_path = "../models/Llama-3.2-1B-SFT-Merged-Baseline2"
+-
+-print(f"Loading base model: {base_model_path}")
++print(f"Loading base model in FP32 for precision...")
+ base_model = AutoModelForCausalLM.from_pretrained(
+     base_model_path,
+-    torch_dtype=torch.bfloat16, # Use bfloat16 to match Llama-3's training
+-    device_map="cpu",           # Merging is fine on CPU to save VRAM
++    dtype=torch.float32, # USE FLOAT32 FOR THE ACTUAL MERGE
++    device_map="cpu",           
+ )
+ 
+ print(f"Loading adapter: {lora_adapter_path}")
+ model = PeftModel.from_pretrained(base_model, lora_adapter_path)
+ 
+ print("Merging weights...")
+-# This step "bakes" the LoRA matrices into the base weight matrices
++# This 'bakes' the LoRA into the base weights with high precision
+ merged_model = model.merge_and_unload()
+ 
++# Optional: Convert back to bfloat16 BEFORE saving to save disk space
++merged_model = merged_model.to(torch.bfloat16)
++
+ print(f"Saving merged model to: {output_path}")
+-merged_model.save_pretrained(output_path)
++merged_model.save_pretrained(output_path, safe_serialization=True)
+ 
+-# Also save the tokenizer so olmes can find it
+-tokenizer = AutoTokenizer.from_pretrained(base_model_path)
++#  Use the Instruct tokenizer to get the chat templates
++print("Saving Tokenizer...")
++tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct") 
+ tokenizer.save_pretrained(output_path)
+ 
+-print("Merge complete!")
+\ No newline at end of file
++print("Merge complete! Now try running your evaluations.")
+\ No newline at end of file
+diff --git a/train_sft.py b/train_sft.py
+index 953f103..cd174cd 100644
+--- a/train_sft.py
++++ b/train_sft.py
+@@ -14,18 +14,18 @@ class SFTTrainer:
+         self.model_name = training_args.get("model_name", "Owos/Llama-3.2-1B")
+         self.dataset_name = training_args.get("dataset_name", "tulu3")
+       
+-        # --- THE FIX: Auto-detect the correct Llama-3 chat template renderer ---
+-        self.renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
+-            model_name=self.model_name,
+-            explicit_renderer_name=None,
++        renderer_name = checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default(
++            model_name="meta-llama/Llama-3.2-1B",
++            explicit_renderer_name="llama3",
+             load_checkpoint_path=None,
+             base_url=None,
+         )
++        print("Renderer"+ renderer_name)
+         
+         # 1. Setup the Dataset Builder 
+         common_config = ChatDatasetBuilderCommonConfig(
+             model_name_for_tokenizer=self.model_name,
+-            renderer_name=self.renderer_name,  # <--- Added here!
++            renderer_name=renderer_name,  # <--- Added here!
+             batch_size=training_args.get("batch_size", 32),
+             max_length=training_args.get("max_length", 2048)
+         )
+@@ -42,7 +42,7 @@ class SFTTrainer:
+         self.cookbook_config = train.Config(
+             log_path=f"./logs/{run_name}",
+             model_name=self.model_name,
+-            renderer_name=self.renderer_name, # <--- And added here!
++            renderer_name=renderer_name, # <--- And added here!
+             dataset_builder=self.dataset_builder,
+             evaluator_builders=[], # Add eval builders here later if needed
+             infrequent_evaluator_builders=[],

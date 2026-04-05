@@ -1,0 +1,20 @@
+# configs/baseline.yaml
+model_name: "meta-llama/Llama-3.2-1B"
+lora_rank: 32
+epochs: 1
+eval_steps: 0
+# Training parameters
+learning_rate: 0.00049
+batch_size: 128
+max_length: 4096        
+
+# --- THE DRY RUN LIMITER ---
+max_steps: 6758         # Stops training completely after 1500 batches. 
+
+# Checkpointing and Evaluation
+save_steps: 500         # Set this to match max_steps so it saves at the very end
+log_steps: 10             # Log frequently so you can see it working quickly
+eval_every: 0          # Disable evaluation - eval after
+
+# Dataset settings
+dataset_name: "tulu3"

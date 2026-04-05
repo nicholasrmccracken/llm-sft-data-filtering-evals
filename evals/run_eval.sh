@@ -3,10 +3,10 @@
 #This part is need for OSC users
 export CC=gcc
 export CXX=g++
-export TRITON_CACHE_DIR=/fs/scratch/xxxx/${USER}/triton_cache
+export TRITON_CACHE_DIR=/fs/scratch/PAS3272/${USER}/triton_cache
 
 
-export UV_CACHE_DIR=/fs/scratch/xxxx/${USER}/.cache/uv  #control your uv caches
+export UV_CACHE_DIR=/fs/scratch/PAS3272/${USER}/.cache/uv  #control your uv caches
 
 # Dummy key to prevent import error in safety-eval (WildGuard doesn't actually use it)
 export OPENAI_API_KEY="sk-dummy-not-used"
@@ -20,17 +20,20 @@ cd olmes/oe_eval/dependencies/safety
 bash install.sh
 
 
-
 dataset_name=(
     "gsm8k"
     "mbpp"
     "ifeval"
-    "xstest"
     "harmbench::default"
     "xstest::default"
 
 )
-model_path=allenai/OLMo-2-0425-1B-SFT
+# Point this to the output_path you used in your merge_lora.py script
+PROJECT_ROOT="/users/PAS3272/chawla114/cse5525-final"
+
+# 2. Point to the model inside that root
+model_path="${PROJECT_ROOT}/trained_models/Llama-3.2-1B-SFT-Merged-Baseline2-11"
+# A clean name for your results folder
 
 for dataset in "${dataset_name[@]}"; do
     echo "Evaluating on ${dataset}..."
