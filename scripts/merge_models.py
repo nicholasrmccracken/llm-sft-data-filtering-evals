@@ -3,8 +3,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 base_model_path = "meta-llama/Llama-3.2-1B" 
-lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/trained_models/7b485804-660c-5bf0-a007-81a92b67d6af:train:0_sampler_weights_final"
-output_path = "/users/PAS3272/chawla114/cse5525-final/trained_models/Llama-3.2-1B-SFT-Merged-Baseline2-11"
+lora_adapter_path = "/users/PAS3272/chawla114/cse5525-final/trained_models/SFT_Baseline_Rerun"
+output_path = "/users/PAS3272/chawla114/cse5525-final/trained_models/Llama-3.2-1B-SFT-Merged-Test-Dataset"
 
 print(f"Loading base model in FP32 for precision...")
 base_model = AutoModelForCausalLM.from_pretrained(

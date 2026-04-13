@@ -32,14 +32,23 @@ dataset_name=(
 PROJECT_ROOT="/users/PAS3272/chawla114/cse5525-final"
 
 # 2. Point to the model inside that root
-model_path="${PROJECT_ROOT}/trained_models/Llama-3.2-1B-SFT-Merged-Baseline2-11"
+model_path="${PROJECT_ROOT}/trained_models/Llama-3.2-1B-SFT-Merged-Test-Dataset"
 # A clean name for your results folder
-
+model_path=meta-llama/Llama-3.2-1B
 for dataset in "${dataset_name[@]}"; do
     echo "Evaluating on ${dataset}..."
 
+    # Set num-shots to 8 only for gsm8k, otherwise set to 0
+    if [ "$dataset" == "gsm8k" ]; then
+        num_shots=8
+    else
+        num_shots=0
+    fi
+
     uv run olmes \
-        --model ${model_path} \
-        --task ${dataset} \
-        --output-dir $model_path-eval-${dataset} 
+        --model "${model_path}" \
+        --task "${dataset}" \
+        --output-dir "${model_path}-eval-${dataset}" \
+        --num-shots "${num_shots}" \
+        --use-chat-format 1
 done
