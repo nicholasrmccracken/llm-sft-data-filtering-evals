@@ -17,5 +17,4 @@ eval_steps: 0
 dataset_name: "tulu3"
 
 # Filtering settings
-filter_min_assistant_words: 25
-filter_max_assistant_words: 750
+filter_min_lexical_diversity: 0.33

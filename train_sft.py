@@ -25,22 +25,25 @@ from tinker_cookbook.supervised.types import (
 )
 
 
-@chz.chz
-class Tulu3Builder(ChatDatasetBuilder):
+class DatasetFilter:
     """
-    Builds the Tulu3 SFT dataset with optional preprocessing.
-
-    Supported preprocessing:
-    - assistant response length filtering
-    - near deduplication on normalized conversation text
-
-    Filtering is applied before shuffling and splitting so that
-    duplicate examples do not leak across train/test.
+    Handles optional dataset filtering operations for SFT training:
+    - assistant length filtering
+    - lexical diversity filtering
+    - near-duplicate filtering
     """
     
-    filter_min_assistant_words: int | None = None
-    filter_max_assistant_words: int | None = None
-    dedup_prefix_words: int | None = None
+    def __init__(
+        self,
+        filter_min_assistant_words: int | None = None,
+        filter_max_assistant_words: int | None = None,
+        filter_min_lexical_diversity: float | None = None,
+        dedup_prefix_words: int | None = None,
+    ):
+        self.filter_min_assistant_words = filter_min_assistant_words
+        self.filter_max_assistant_words = filter_max_assistant_words
+        self.filter_min_lexical_diversity = filter_min_lexical_diversity
+        self.dedup_prefix_words = dedup_prefix_words
 
     @staticmethod
     def extract_assistant_text(messages: list[dict]) -> str:
@@ -56,8 +59,8 @@ class Tulu3Builder(ChatDatasetBuilder):
     @staticmethod
     def normalize_text(text: str) -> str:
         """
-        Normalize text for exact deduplication by lowercasing and
-        collapsing all whitespace to single spaces.
+        Normalize text by lowercasing, removing punctuation,
+        and collapsing whitespace to single spaces.
         """
         cleaned_chars = []
         for ch in text.lower():
@@ -68,87 +71,139 @@ class Tulu3Builder(ChatDatasetBuilder):
         return " ".join("".join(cleaned_chars).split())
 
     @classmethod
-    def assistant_dedup_key(cls, messages: list[dict], prefix_words: int | None = None) -> str:
+    def assistant_dedup_key(
+        cls,
+        messages: list[dict],
+        prefix_words: int | None = None,
+    ) -> str:
         """
         Build a near-duplicate key from the normalized assistant response.
-        Optionally truncate to the first N words to catch repeated prefixes.
+        Optionally truncate to the first N words.
         """
         assistant_text = cls.extract_assistant_text(messages)
         normalized = cls.normalize_text(assistant_text)
+        
         if prefix_words is not None:
             normalized = " ".join(normalized.split()[:prefix_words])
+            
         return normalized
+
+    def keep_by_length(self, row: dict) -> bool:
+        """
+        Keep examples whose assistant response length falls within
+        the configured word-count bounds.
+        """
+        if (
+            self.filter_min_assistant_words is None
+            and self.filter_max_assistant_words is None
+        ):
+            return True
+
+        assistant_text = self.extract_assistant_text(row["messages"])
+        if not assistant_text:
+            return False
+
+        word_count = len(assistant_text.split())
+        if (
+            self.filter_min_assistant_words is not None
+            and word_count < self.filter_min_assistant_words
+        ):
+            return False
+        if (
+            self.filter_max_assistant_words is not None
+            and word_count > self.filter_max_assistant_words
+        ):
+            return False
+
+        return True
+
+    def keep_by_lexical_diversity(self, row: dict) -> bool:
+        """
+        Keep examples whose assistant response has lexical diversity
+        above the configured minimum threshold.
+        
+        Lexical diversity is defined as:
+            unique_words / total_words
+        """
+        if self.filter_min_lexical_diversity is None:
+            return True
+
+        assistant_text = self.extract_assistant_text(row["messages"])
+        if not assistant_text:
+            return False
+
+        normalized = self.normalize_text(assistant_text)
+        words = normalized.split()
+
+        if not words:
+            return False
+        
+        lexical_diversity = len(set(words)) / len(words)
+        return lexical_diversity >= self.filter_min_lexical_diversity
+
+    def apply_dedup(self, dataset: datasets.Dataset) -> datasets.Dataset:
+        """
+        Apply near-duplicate filtering based on normalized assistant text.
+        """
+        if self.dedup_prefix_words is None:
+            return dataset
+
+        seen_hashes: set[str] = set()
+
+        def keep_unique(row: dict) -> bool:
+            key = self.assistant_dedup_key(
+                row["messages"],
+                prefix_words=self.dedup_prefix_words,
+            )
+            key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+            if key_hash in seen_hashes:
+                return False
+
+            seen_hashes.add(key_hash)
+            return True
+
+        return dataset.filter(keep_unique)
+    
+    
+@chz.chz
+class Tulu3Builder(ChatDatasetBuilder):
+    """
+    Builds the Tulu3 SFT dataset with optional preprocessing.
+
+    Filtering is applied before shuffling and splitting so that
+    duplicate examples do not leak across train/test.
+    """
+    
+    filter_min_assistant_words: int | None = None
+    filter_max_assistant_words: int | None = None
+    filter_min_lexical_diversity: float | None = None
+    dedup_prefix_words: int | None = None
 
     def __call__(self) -> tuple[SupervisedDataset, SupervisedDataset]:
         dataset = datasets.load_dataset("allenai/tulu-3-sft-olmo-2-mixture-0225")
         dataset = cast(datasets.DatasetDict, dataset)["train"]
         original_count = len(dataset)
 
-        def keep_example(row: dict) -> bool:
-            """
-            Keep examples whose assistant response length falls within
-            the configured token bounds. Examples with no assistant
-            response are dropped.
-            """
-            assistant_text = self.extract_assistant_text(row["messages"])
-
-            # If no filtering is enabled → keep everything
-            if (
-                self.filter_min_assistant_words is None
-                and self.filter_max_assistant_words is None
-            ):
-                return True
-    
-            # Filtering is enabled, so drop empty assistant responses
-            if not assistant_text:
-                return False
-
-            word_count = len(assistant_text.split())
-
-            if (
-                self.filter_min_assistant_words is not None
-                and word_count < self.filter_min_assistant_words
-            ):
-                return False
-            if (
-                self.filter_max_assistant_words is not None
-                and word_count > self.filter_max_assistant_words
-            ):
-                return False
-
-            return True
-
-        dataset = dataset.filter(keep_example)
-        after_length_filter_count = len(dataset)
-
-        if self.dedup_prefix_words is not None:
-            seen_hashes = set()
-
-            def keep_unique(row: dict) -> bool:
-                """
-                Keep only the first occurrence of a deduplication key.
-                """
-                key = self.assistant_dedup_key(
-                    row["messages"],
-                    prefix_words=self.dedup_prefix_words,
-                )
-                key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
-                    
-                if key_hash in seen_hashes: 
-                    return False
-
-                seen_hashes.add(key_hash)
-                return True
-
-            dataset = dataset.filter(keep_unique)
-
-        final_count = len(dataset)
-
+        dataset_filter = DatasetFilter(
+            filter_min_assistant_words=self.filter_min_assistant_words,
+            filter_max_assistant_words=self.filter_max_assistant_words,
+            filter_min_lexical_diversity=self.filter_min_lexical_diversity,
+            dedup_prefix_words=self.dedup_prefix_words,
+        )
+        
         print("\n--- Dataset Filtering Summary ---")
         print(f"Original examples: {original_count}")
-        print(f"After length filter: {after_length_filter_count}")
-        print(f"After deduplication: {final_count}")
-        print(f"Removed total: {original_count - final_count}")
+        
+        dataset = dataset.filter(dataset_filter.keep_by_length)
+        print(f"After length filter: {len(dataset)}")
+        
+        dataset = dataset.filter(dataset_filter.keep_by_lexical_diversity)
+        print(f"After lexical diversity filter: {len(dataset)}")
+        
+        dataset = dataset_filter.apply_dedup(dataset)
+        print(f"After deduplication: {len(dataset)}")
+        print(f"Removed total: {original_count - len(dataset)}")
         print("---------------------------------\n")
 
         if len(dataset) <= 1024:
@@ -229,6 +284,7 @@ class SFTTrainer:
                 filter_min_assistant_words=self.training_args.get("filter_min_assistant_words"),
                 filter_max_assistant_words=self.training_args.get("filter_max_assistant_words"),
                 dedup_prefix_words=self.training_args.get("dedup_prefix_words"),
+                filter_min_lexical_diversity=self.training_args.get("filter_min_lexical_diversity"),
             )
 
         raise ValueError(f"Add a builder for {self.dataset_name}")
