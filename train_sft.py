@@ -10,7 +10,6 @@ import datasets
 import tinker
 import yaml
 from dotenv import load_dotenv
-from transformers import AutoTokenizer
 
 from tinker_cookbook import model_info
 from tinker_cookbook.renderers import TrainOnWhat
@@ -33,14 +32,15 @@ class Tulu3Builder(ChatDatasetBuilder):
 
     Supported preprocessing:
     - assistant response length filtering
-    - exact deduplication on normalized conversation text
+    - near deduplication on normalized conversation text
 
     Filtering is applied before shuffling and splitting so that
     duplicate examples do not leak across train/test.
     """
-    filter_min_assistant_tokens: int | None = None
-    filter_max_assistant_tokens: int | None = None
-    dedup_exact: bool = False
+    
+    filter_min_assistant_words: int | None = None
+    filter_max_assistant_words: int | None = None
+    dedup_prefix_words: int | None = None
 
     @staticmethod
     def extract_assistant_text(messages: list[dict]) -> str:
@@ -59,26 +59,29 @@ class Tulu3Builder(ChatDatasetBuilder):
         Normalize text for exact deduplication by lowercasing and
         collapsing all whitespace to single spaces.
         """
-        return " ".join(text.lower().split())
+        cleaned_chars = []
+        for ch in text.lower():
+            if ch.isalnum() or ch.isspace():
+                cleaned_chars.append(ch)
+            else:
+                cleaned_chars.append(" ")
+        return " ".join("".join(cleaned_chars).split())
 
     @classmethod
-    def conversation_key(cls, messages: list[dict]) -> str:
+    def assistant_dedup_key(cls, messages: list[dict], prefix_words: int | None = None) -> str:
         """
-        Create a normalized string representation of a full conversation.
+        Build a near-duplicate key from the normalized assistant response.
+        Optionally truncate to the first N words to catch repeated prefixes.
         """
-        parts = []
-        for message in messages:
-            role = message.get("role", "").strip().lower()
-            content = cls.normalize_text(message.get("content", ""))
-            parts.append(f"{role}: {content}")
-        return "\n".join(parts)
+        assistant_text = cls.extract_assistant_text(messages)
+        normalized = cls.normalize_text(assistant_text)
+        if prefix_words is not None:
+            normalized = " ".join(normalized.split()[:prefix_words])
+        return normalized
 
     def __call__(self) -> tuple[SupervisedDataset, SupervisedDataset]:
         dataset = datasets.load_dataset("allenai/tulu-3-sft-olmo-2-mixture-0225")
         dataset = cast(datasets.DatasetDict, dataset)["train"]
-        tokenizer = AutoTokenizer.from_pretrained(
-            self.common_config.model_name_for_tokenizer
-        )
         original_count = len(dataset)
 
         def keep_example(row: dict) -> bool:
@@ -89,44 +92,50 @@ class Tulu3Builder(ChatDatasetBuilder):
             """
             assistant_text = self.extract_assistant_text(row["messages"])
 
-            if not assistant_text: return False
+            # If no filtering is enabled → keep everything
             if (
-                self.filter_min_assistant_tokens is None
-                and self.filter_max_assistant_tokens is None
-            ): return True
+                self.filter_min_assistant_words is None
+                and self.filter_max_assistant_words is None
+            ):
+                return True
+    
+            # Filtering is enabled, so drop empty assistant responses
+            if not assistant_text:
+                return False
 
-            token_count = len(
-                tokenizer(
-                    assistant_text,
-                    add_special_tokens=False,
-                    truncation=False,
-                )["input_ids"]
-            )
+            word_count = len(assistant_text.split())
 
             if (
-                self.filter_min_assistant_tokens is not None
-                and token_count < self.filter_min_assistant_tokens
-            ): return False
+                self.filter_min_assistant_words is not None
+                and word_count < self.filter_min_assistant_words
+            ):
+                return False
             if (
-                self.filter_max_assistant_tokens is not None
-                and token_count > self.filter_max_assistant_tokens
-            ): return False
+                self.filter_max_assistant_words is not None
+                and word_count > self.filter_max_assistant_words
+            ):
+                return False
 
             return True
 
         dataset = dataset.filter(keep_example)
         after_length_filter_count = len(dataset)
 
-        if self.dedup_exact:
+        if self.dedup_prefix_words is not None:
             seen_hashes = set()
 
             def keep_unique(row: dict) -> bool:
                 """
-                Keep only the first occurrence of each normalized conversation.
+                Keep only the first occurrence of a deduplication key.
                 """
-                key = self.conversation_key(row["messages"])
+                key = self.assistant_dedup_key(
+                    row["messages"],
+                    prefix_words=self.dedup_prefix_words,
+                )
                 key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
-                if key_hash in seen_hashes: return False
+                    
+                if key_hash in seen_hashes: 
+                    return False
 
                 seen_hashes.add(key_hash)
                 return True
@@ -217,9 +226,9 @@ class SFTTrainer:
         if self.dataset_name == "tulu3":
             return Tulu3Builder(
                 common_config=common_config,
-                filter_min_assistant_tokens=self.training_args.get("filter_min_assistant_tokens"),
-                filter_max_assistant_tokens=self.training_args.get("filter_max_assistant_tokens"),
-                dedup_exact=self.training_args.get("dedup_exact", False),
+                filter_min_assistant_words=self.training_args.get("filter_min_assistant_words"),
+                filter_max_assistant_words=self.training_args.get("filter_max_assistant_words"),
+                dedup_prefix_words=self.training_args.get("dedup_prefix_words"),
             )
 
         raise ValueError(f"Add a builder for {self.dataset_name}")

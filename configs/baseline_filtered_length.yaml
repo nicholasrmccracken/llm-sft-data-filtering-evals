@@ -17,6 +17,5 @@ eval_steps: 0
 dataset_name: "tulu3"
 
 # Filtering settings
-filter_min_assistant_tokens: 32
-filter_max_assistant_tokens: 1024
-dedup_exact: false
+filter_min_assistant_words: 50
+filter_max_assistant_words: 750

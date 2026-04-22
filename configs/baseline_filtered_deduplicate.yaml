@@ -17,4 +17,4 @@ eval_steps: 0
 dataset_name: "tulu3"
 
 # Filtering settings
-dedup_exact: true
+dedup_prefix_words: 50
