@@ -1,27 +1,24 @@
 #!/bin/bash
+#SBATCH --job-name=eval-5525
+#SBATCH --account=PAS3272
+#SBATCH --gpus-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=12:00:00
+#SBATCH --output=eval_logs/eval_%j.out
+#SBATCH --error=eval_logs/eval_%j.err
 
 set -e
 
 # Load .env from repo root
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  source .env
+  set +a
 else
   echo "Missing .env file"
   exit 1
 fi
-
-# This part is need for OSC users
-export CC=gcc
-export CXX=g++
-export TRITON_CACHE_DIR=/fs/scratch/PAS3272/${USER}/triton_cache
-export UV_CACHE_DIR=/fs/scratch/PAS3272/${USER}/.cache/uv  # control your uv caches
-
-# Dummy key to prevent import error in safety-eval (WildGuard doesn't actually use it)
-export OPENAI_API_KEY="sk-dummy-not-used"
-
-# Disable vLLM V1 multiprocessing so EngineCore runs inline in the spawned subprocess
-# rather than forking a grandchild process that loses CUDA visibility on SLURM
-export VLLM_ENABLE_V1_MULTIPROCESSING=0
 
 # Validate required env vars
 if [ -z "${PROJECT_ROOT}" ] || [ -z "${EVAL_MODEL_PATH}" ] || [ -z "${EVAL_OUTPUT_ROOT}" ]; then
@@ -29,16 +26,28 @@ if [ -z "${PROJECT_ROOT}" ] || [ -z "${EVAL_MODEL_PATH}" ] || [ -z "${EVAL_OUTPU
   exit 1
 fi
 
+cd "${PROJECT_ROOT}"
+
+mkdir -p logs
+mkdir -p "${EVAL_OUTPUT_ROOT}"
+
+# OSC environment
+export CC=gcc
+export CXX=g++
+export TRITON_CACHE_DIR=/fs/scratch/PAS3272/${USER}/triton_cache
+export UV_CACHE_DIR=/fs/scratch/PAS3272/${USER}/.cache/uv
+export UV_LINK_MODE=copy
+export OPENAI_API_KEY="sk-dummy-not-used"
+export VLLM_ENABLE_V1_MULTIPROCESSING=0
+
 # Install safety dependencies for safety-eval
 cd "${PROJECT_ROOT}/evals/olmes/oe_eval/dependencies/safety"
-bash install.sh
+bash install.sh || true
 
 dataset_name=(
-    "gsm8k"
-    "mbpp"
-    "ifeval"
-    "harmbench::default"
-    "xstest::default"
+  "ifeval"
+  "harmbench::default"
+  "xstest::default"
 )
 
 cd "${PROJECT_ROOT}"
