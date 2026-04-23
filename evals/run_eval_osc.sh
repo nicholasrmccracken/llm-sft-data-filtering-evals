@@ -45,6 +45,8 @@ cd "${PROJECT_ROOT}/evals/olmes/oe_eval/dependencies/safety"
 bash install.sh || true
 
 dataset_name=(
+  "gsm8k"
+  "mbpp"
   "ifeval"
   "harmbench::default"
   "xstest::default"
