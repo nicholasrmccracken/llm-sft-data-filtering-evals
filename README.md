@@ -1,185 +1,227 @@
-# CSE 5525: Default Project - Spring 2026
+# LLM Fine-Tuning & Data Filtering
 
 ## Overview
 
-This is the default project for CSE 5525 (Foundations of Speech and Language Processing). In this project, you will implement and train a language model using various training paradigms, then evaluate its performance on several benchmark tasks.
+This project investigates how instruction-data filtering affects supervised fine-tuning performance for small language models.
+
+The pipeline fine-tunes **Llama 3.2 1B** using configurable filtering strategies applied to instruction-following data before training. The main filters include response-length constraints, lexical-diversity thresholds, and near-duplicate removal. Each filtered dataset can then be used for supervised fine-tuning with LoRA, followed by model merging and benchmark evaluation.
+
+The goal is to compare how different data-selection strategies influence model quality, training behavior, and downstream benchmark performance.
 
 ## Project Structure
 
-```
-├── README.md                 # This file
-├── train_sft.py              # Template for Supervised Fine-Tuning
-├── train_rm.py               # Template for Reward Modeling
-├── train_pref.py             # Template for Preference Optimization
-├── configs/                  # Configuration files for training
-├── scripts/                  # Utility scripts
-└── evals/                    # Evaluation suite (OLMES)
-    ├── run_eval.sh           # Script to run evaluations
-    └── olmes/                # AI2's Open Language Model Evaluation System
-```
-
-## Getting Started
-
-### 1. Environment Setup
-
-Set up your Python environment with the required dependencies:
-
-```bash
-# Clone the repository
-git clone --recurse-submodules https://github.com/shocheen/cse-5525-spring-2026-default-project.git
-cd cse-5525-spring-2026-default-project
-
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies (adjust based on your requirements)
-uv pip install tinker
+```text
+├── train_sft.py              # Supervised fine-tuning pipeline
+├── configs/                  # Training and filtering configurations
+├── scripts/                  # Training, merging, and evaluation utilities
+├── evals/                    # OLMES evaluation suite
+├── eval_outputs/             # Benchmark outputs
+├── logs/                     # Training logs and saved runs
+├── Proposal_5525.pdf         # Initial project proposal
+├── Midpoint_5525.pdf         # Midpoint project report
+└── README.md
 ```
 
-### 2. Training
+## Data Filtering
 
-We provide three template files for different training approaches:
+The training pipeline supports several configurable preprocessing strategies.
 
-#### Supervised Fine-Tuning (SFT)
-Implement your SFT training logic in `train_sft.py`. This is the standard approach for instruction-tuning language models.
+### Response-Length Filtering
 
-An example of how to do this has already been provider by Tinker for you [here](https://github.com/thinking-machines-lab/tinker-cookbook/tree/main/tinker_cookbook/recipes/chat_sl)
+Examples can be filtered based on the length of the assistant response.
 
-#### Reward Modeling (RM)
-Implement your reward model training in `train_rm.py`. This trains a model to predict human preferences.
+This allows training runs to exclude responses that are either too short to contain meaningful instruction-following behavior or unnecessarily long for the target training setup.
 
-An example of how to do this has already been provider by Tinker for you [here](https://github.com/thinking-machines-lab/tinker-cookbook/tree/main/tinker_cookbook/recipes/preference/rlhf)
+Supported configuration options include:
 
-#### Preference Optimization (PREF)
-Implement your preference optimization (e.g., DPO, PPO) in `train_pref.py`. This aligns the model using preference data.
+```yaml
+filter_min_assistant_words:
+filter_max_assistant_words:
+```
 
-An example of how to do this has already been provider by Tinker for you [here](https://github.com/thinking-machines-lab/tinker-cookbook/tree/main/tinker_cookbook/recipes/preference)
+### Lexical-Diversity Filtering
 
-Each template provides a basic class structure. You should:
-1. Complete the `train()` method with your training loop
-2. Add data loading and preprocessing
-3. Implement checkpointing and logging
-4. Add configuration management via the `configs/` directory
+The pipeline can remove examples with low lexical diversity.
+
+Lexical diversity is calculated as:
+
+```text
+unique words / total words
+```
+
+This provides a simple way to filter repetitive responses before fine-tuning.
+
+```yaml
+filter_min_lexical_diversity:
+```
+
+### Near-Duplicate Filtering
+
+Near-duplicate assistant responses can also be removed before the train/test split.
+
+Responses are normalized by:
+
+* converting text to lowercase
+* removing punctuation
+* collapsing whitespace
+* optionally comparing only the first N words
+* hashing the normalized text to detect duplicates
+
+```yaml
+dedup_prefix_words:
+```
+
+Filtering is performed before shuffling and splitting so that duplicate responses do not leak between the training and evaluation datasets.
+
+## Supervised Fine-Tuning
+
+The project fine-tunes **Meta Llama 3.2 1B** using supervised fine-tuning through the Tinker training stack.
+
+Training is configurable through YAML files and supports parameters such as:
+
+```yaml
+model_name:
+batch_size:
+max_length:
+learning_rate:
+epochs:
+lora_rank:
+save_steps:
+eval_steps:
+max_steps:
+```
+
+The pipeline automatically:
+
+1. Loads the instruction dataset
+2. Applies the configured filtering strategy
+3. Shuffles the filtered dataset
+4. Creates training and evaluation splits
+5. Formats conversations for the selected model
+6. Fine-tunes the model using LoRA
+7. Saves checkpoints and training logs
+
+## Dataset
+
+The project uses the **Tulu 3 SFT mixture**:
+
+```text
+allenai/tulu-3-sft-olmo-2-mixture-0225
+```
+
+A fixed set of 1,024 shuffled examples is reserved for evaluation after filtering, while the remaining examples are used for training.
+
+## Training Experiments
+
+The project is structured around comparing multiple data-selection strategies against an unfiltered baseline.
+
+Example experiment categories include:
+
+* Baseline SFT
+* Response-length filtering
+* Lexical-diversity filtering
+* Near-duplicate filtering
+* Combined filtering strategies
+
+Each experiment can be configured independently, allowing training behavior and evaluation results to be compared across runs.
+
+## LoRA Adapter Merging
+
+Fine-tuning is performed using **LoRA** to reduce the number of trainable parameters.
+
+After training, LoRA adapters can be merged back into the base model weights to create a standalone model checkpoint for evaluation.
+
+The resulting merged model can then be loaded by standard Hugging Face tooling and evaluated through OLMES.
 
 ## Evaluation
 
-After training your model, you must evaluate it using **OLMES** (Open Language Model Evaluation System), AI2's evaluation suite.
+Fine-tuned models are evaluated using **OLMES**, AI2's Open Language Model Evaluation System.
 
-### Evaluation Tasks
+Benchmarks include:
 
-Your model will be evaluated on the following benchmarks:
+| Benchmark     | Focus                       |
+| ------------- | --------------------------- |
+| **GSM8K**     | Mathematical reasoning      |
+| **IFEval**    | Instruction following       |
+| **MBPP**      | Python code generation      |
+| **HarmBench** | Safety evaluation           |
+| **XSTest**    | Safety and refusal behavior |
 
-| Task | Description |
-|------|-------------|
-| **GSM8K** | Grade school math word problems (mathematical reasoning) |
-| **IFEval** | Instruction following evaluation |
-| **MBPP** | Mostly Basic Python Problems (code generation) |
-| **HarmBench** | Safety and harmfulness evaluation |
-| **XSTest** | Safety and harmfulness evaluation |
+Evaluation outputs include model predictions and aggregated benchmark metrics.
 
-### Running Evaluations
+```text
+eval_outputs/
+├── gsm8k-predictions.jsonl
+├── ifeval-predictions.jsonl
+├── mbpp-predictions.jsonl
+└── harmbench-predictions.jsonl
+```
 
-1. **Setup OLMES:**
+## Running Training
+
+Create and activate a Python environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install the required dependencies:
+
+```bash
+uv pip install tinker
+```
+
+Configure a training run using a YAML file in `configs/`.
+
+Then run:
+
+```bash
+python train_sft.py --config configs/<config-name>.yaml
+```
+
+The configuration filename is automatically incorporated into the experiment name and training log directory.
+
+## Running Evaluation
+
+Set up OLMES:
 
 ```bash
 cd evals/olmes
 
-# Install with uv (recommended)
-export CC=gcc
-export CXX=g++
 uv sync
-uv sync --group gpu  # for GPU/vLLM support
-
-# Or install with pip
-pip install -e .
-pip install -e ".[gpu]"  # for GPU support
+uv sync --group gpu
 ```
 
-2. **Run evaluations:**
-You can decide to run your evaluations on Tinker or on OSC. If you decide to use Tinker for evaluation, you will be responsible to porting this code evaluation harness into Tinker for your usage.
-
-To this code on OSC, please replace `xxxx` in `run_eval.sh` with the correct project.
-
-Use the provided evaluation script:
+Then run an evaluation from the `evals` directory:
 
 ```bash
-cd ../
-bash run_eval.sh
+olmes --model <model-path> --task gsm8k --output-dir <output-dir>
 ```
 
-Or run individual evaluations:
+For example:
 
 ```bash
-# GSM8K (Mathematical Reasoning)
-olmes --model <your-model-path> --task gsm8k --output-dir <output-dir>
-
-# IFEval (Instruction Following)
-olmes --model <your-model-path> --task ifeval --output-dir <output-dir>
-
-# MBPP (Code Generation)
-olmes --model <your-model-path> --task mbpp --output-dir <output-dir>
-
-# HarmBench (Safety Evaluation)
-olmes --model <your-model-path> --task harmbench::wildguard_reasoning_answer --output-dir <output-dir>
+olmes --model <model-path> --task ifeval --output-dir <output-dir>
 ```
 
-### Evaluation Output
+Multiple evaluation tasks can be run to compare the performance of models trained using different filtering strategies.
 
-Each evaluation will produce:
-- `predictions.jsonl` - Model predictions for each task instance
-- `metrics.json` - Aggregated metrics and scores
-- Detailed logs and analysis
+## Tech Stack
 
-## Submission Requirements
+* **Python**
+* **PyTorch**
+* **Hugging Face**
+* **Tinker**
+* **LoRA / PEFT**
+* **OLMES**
+* **Datasets**
+* **YAML**
 
-You must submit the following:
+## Key Ideas
 
-### 1. Prediction Files
-Submit the `predictions.jsonl` file for **each** evaluation task:
-- `gsm8k-predictions.jsonl`
-- `ifeval-predictions.jsonl`
-- `mbpp-predictions.jsonl`
-- `harmbench-predictions.jsonl`
+This project focuses on a simple question:
 
-### 2. Final Model
-Submit your trained model checkpoint (or provide a link if hosted on HuggingFace Hub).
+**Can better instruction-data selection improve fine-tuning outcomes without changing the underlying model architecture?**
 
-### 3. Report
-Submit a written report documenting:
-- Your approach and methodology
-- Training details (hyperparameters, data used, compute resources)
-- Results and analysis
-- Ablation studies (if any)
-- Discussion of limitations and future work
-
-## Grading Criteria
-
-Your project will be graded on:
-1. **Implementation Quality** - Clean, well-documented code
-2. **Model Performance** - Scores on the evaluation benchmarks
-3. **Report Quality** - Clarity, completeness, and analysis depth
-4. **Innovation** - Creative approaches or improvements
-
-## Tips
-
-- Start with SFT as a baseline before trying more advanced methods
-- Monitor training loss and validation metrics carefully
-- Use smaller batch sizes with gradient accumulation if memory is limited
-- Test your evaluation pipeline early with a small model
-- Document your experiments thoroughly
-
-## Resources
-
-- [OLMES Documentation](https://github.com/allenai/olmes)
-- [Hugging Face Transformers](https://huggingface.co/docs/transformers)
-- [TRL (Transformer Reinforcement Learning)](https://huggingface.co/docs/trl)
-
-## Questions?
-
-If you have questions about the project, please:
-1. Post them on Teams/Carman
-2. Attend office hours
-3. Email the course TA (Abraham) or Instructor (Sachin)
-
-Good luck!
+Instead of treating the entire training dataset as equally valuable, the pipeline makes data quality a configurable part of the fine-tuning process and provides a reproducible way to compare different filtering approaches.
